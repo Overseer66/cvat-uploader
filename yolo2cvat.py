@@ -17,6 +17,7 @@ if __name__ == '__main__':
     parser.add_argument('--task_name')
     parser.add_argument('--dataset_dir')
     parser.add_argument('--image_quality', default=70, type=int)
+    parser.add_argument('--upload_image', action='store_true')
     parser.add_argument('--allow_create', action='store_true')
     args = parser.parse_args()
 
@@ -69,39 +70,40 @@ if __name__ == '__main__':
         task_id = get_task_id(api_client, args.task_name, project_id, args.allow_create)
 
         # initialize upload
-        _, response = api_client.tasks_api.create_data(
-            task_id,
-            data_request=models.DataRequest(image_quality=args.image_quality),
-            upload_start=True
-        )
-
-        # upload images
-        bulk_size = 10
-        idx = 0
-        with tqdm(total=len(dataset), desc='Uploading images') as pbar:
-            while idx < len(dataset):
-                bulk = list(dataset.keys())[idx:idx + bulk_size]
-                client_files = [open(dataset[key]['filepath'], 'rb') for key in bulk]
-
-                data_request = models.DataRequest(
-                    image_quality=args.image_quality,
-                    client_files=client_files,
+        if args.upload_image:
+            # upload images
+            bulk_size = 10
+            idx = 0
+            with tqdm(total=len(dataset), desc='Uploading images') as pbar:
+                _, response = api_client.tasks_api.create_data(
+                    task_id,
+                    data_request=models.DataRequest(image_quality=args.image_quality),
+                    upload_start=True
                 )
+
+                while idx < len(dataset):
+                    bulk = list(dataset.keys())[idx:idx + bulk_size]
+                    client_files = [open(dataset[key]['filepath'], 'rb') for key in bulk]
+
+                    data_request = models.DataRequest(
+                        image_quality=args.image_quality,
+                        client_files=client_files,
+                    )
+
+                    _, response = api_client.tasks_api.create_data(
+                        task_id,
+                        data_request=data_request,
+                        upload_multiple=True,
+                        _content_type='multipart/form-data'
+                    )
+                    idx += bulk_size
+                    pbar.update(bulk_size)
 
                 _, response = api_client.tasks_api.create_data(
                     task_id,
-                    data_request=data_request,
-                    upload_multiple=True,
-                    _content_type='multipart/form-data'
+                    data_request=models.DataRequest(image_quality=args.image_quality),
+                    upload_finish=True
                 )
-                idx += bulk_size
-                pbar.update(bulk_size)
-
-            _, response = api_client.tasks_api.create_data(
-                task_id,
-                data_request=models.DataRequest(image_quality=args.image_quality),
-                upload_finish=True
-            )
 
         # waiting for CVAT task is ready
         tiktok = 0
@@ -126,7 +128,7 @@ if __name__ == '__main__':
                             type=models.ShapeType('rectangle'),
                             points=data['xyxy'],
                             frame=frame_idx,
-                            label_id=label2id[data['class']],
+                            label_id=label2id[data['class'].lower()],
                         ) for data in data_info['labels']
                     ],
                     tracks=[]
